@@ -207,7 +207,10 @@ ${
   • Por categoria (um item por linha):
     - NomeCategoria: R$ 0,00
   • Recentes (um item por linha):
-    - DD/MM • Categoria • Tipo • R$ 0,00
+        • Débito:
+    - DD/MM • Categoria • R$ 0,00
+        • Crédito:
+    - DD/MM • Categoria • R$ 0,00
   • Mensal:
     - MM • Tipo: R$ 0,00
 `
