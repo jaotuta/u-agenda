@@ -1,10 +1,19 @@
-// app/api/webhook/route.js
 import { NextResponse } from "next/server";
 import { waSendText, waMarkRead } from "@/lib/whatsapp";
-import { parseTransactionWithGemini, chatWithGemini } from "@/lib/gemini";
+import {
+  parseTransactionWithGemini,
+  chatWithGemini,
+  classifyFinanceIntent,
+} from "@/lib/gemini";
+import {
+  getTotals,
+  getTotalsByCategory,
+  getRecentTransactions,
+  getMonthly,
+} from "@/lib/db";
 
-function formatReply(tx) {
-  const valor = tx.amount.toLocaleString("pt-BR", {
+function formatTxReply(tx) {
+  const valor = Number(tx.amount).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -12,19 +21,12 @@ function formatReply(tx) {
 }
 
 export async function GET(req) {
-  const url = new URL(req.url);
-  const mode = url.searchParams.get("hub.mode");
-  const token = url.searchParams.get("hub.verify_token");
-  const challenge = url.searchParams.get("hub.challenge");
-
-  if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
-    return new NextResponse(challenge, { status: 200 });
-  }
-  return new NextResponse("Forbidden", { status: 403 });
+  /* igual */
 }
 
 export async function POST(req) {
   const body = await req.json();
+
   try {
     const entry = body?.entry?.[0];
     const change = entry?.changes?.[0];
@@ -32,14 +34,13 @@ export async function POST(req) {
     const message = value?.messages?.[0];
     const statuses = value?.statuses?.[0];
 
-    // callbacks de status (delivered, read, etc.)
     if (statuses) return NextResponse.json({ ok: true });
 
-    // mensagem recebida
     if (message) {
-      const from = message.from;
+      const from = message.from; // wa_id
       const type = message.type;
       const msgId = message.id;
+      const contactName = value?.contacts?.[0]?.profile?.name;
 
       const text =
         type === "text"
@@ -55,16 +56,68 @@ export async function POST(req) {
       let reply = "Não entendi. Pode reformular?";
 
       if (text) {
+        // 1) Primeiro: continua registrando transações (se for o caso)
         const { transaction } = await parseTransactionWithGemini(text);
-
         if (transaction) {
-          reply = formatReply(transaction);
-        } else {
-          const context = {
-            contactName: value?.contacts?.[0]?.profile?.name,
-            waId: value?.contacts?.[0]?.wa_id,
+          // (aqui você já deve estar salvando no banco, como fez antes)
+          reply = formatTxReply(transaction);
+          await waSendText(from, reply);
+          return NextResponse.json({ ok: true });
+        }
+
+        // 2) Não é transação → pergunta: é consulta financeira?
+        const route = await classifyFinanceIntent(text);
+        if (route?.intent === "consulta") {
+          const range = route.range || {};
+          const period = {
+            from: range.from,
+            to: range.to,
           };
-          reply = await chatWithGemini(text, context);
+          const typeFilter = route.type || "Todos";
+          const focus = route.focus || "totais";
+
+          // Busca conforme foco
+          let financeData = { period, typeFilter, focus };
+          if (focus === "totais") {
+            financeData.totals = await getTotals(
+              from,
+              period.from,
+              period.to,
+              typeFilter
+            );
+          } else if (focus === "categorias") {
+            financeData.byCategory = await getTotalsByCategory(
+              from,
+              period.from,
+              period.to,
+              typeFilter
+            );
+          } else if (focus === "recentes") {
+            financeData.recent = await getRecentTransactions(
+              from,
+              period.from,
+              period.to,
+              typeFilter,
+              5
+            );
+          } else if (focus === "mensal") {
+            financeData.monthly = await getMonthly(
+              from,
+              period.from,
+              period.to,
+              typeFilter
+            );
+          }
+
+          // 3) Envia a pergunta + dados para o Gemini responder baseado no DB
+          reply = await chatWithGemini(text, {
+            contactName,
+            waId: from,
+            financeData,
+          });
+        } else {
+          // 3b) Não é consulta → chat normal
+          reply = await chatWithGemini(text, { contactName, waId: from });
         }
       } else {
         reply = "Recebi sua mensagem! (não-texto)";

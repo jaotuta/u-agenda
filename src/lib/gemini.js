@@ -1,58 +1,47 @@
 // lib/gemini.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
-
 const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 
-const SYSTEM_PARSER = `
-Você atua como um parser financeiro em pt-BR. Sua tarefa é transformar uma mensagem de WhatsApp
-em um JSON bem-formado representando uma transação financeira.
-
-REGRAS:
-- Débito = gasto/saída de dinheiro
-- Crédito = entrada/recebimento de dinheiro
-- "category": uma única palavra ou termo simples (ex: Mercado, Alimentação, Transporte, Saúde, Lazer, Educação, Eletrônicos, Vestuário, Outros, Receita).
-- "amount": número em reais (ponto decimal), sem "R$".
-- "date": no formato DD/MM/AAAA (America/Sao_Paulo), usando data atual a menos que o texto especifique outra.
-
-Se o texto não descrever uma transação, responda:
-{ "transaction": null }
-
-FORMATO DE SAÍDA (somente JSON):
-{
-  "transaction": {
-    "type": "Débito" | "Crédito",
-    "category": "string",
-    "amount": number,
-    "date": "DD/MM/AAAA"
-  }
-}
-ou
-{ "transaction": null }
+const ROUTER_INSTRUCTIONS = `
+Você é um roteador de intenção financeira em pt-BR.
+Dado um texto curto de WhatsApp, responda SOMENTE em JSON:
+- Se o usuário estiver pedindo informações dos próprios gastos/receitas, retorne:
+  {"intent":"consulta","range":{"from":"DD/MM/AAAA","to":"DD/MM/AAAA"},"type":"Débito|Crédito|Todos","focus":"totais|categorias|recentes|mensal"}
+  Regras:
+  - Interprete expressões como "hoje", "ontem", "essa semana", "mês passado".
+  - Se não houver período explícito, use: de 01 do mês atual até hoje (America/Sao_Paulo).
+  - type: "Débito" se falar de gastos/despesas; "Crédito" se falar de receitas; "Todos" caso ambíguo.
+  - focus: 
+    - "totais" quando pedir "quanto gastei" / "quanto recebi".
+    - "categorias" quando pedir "por categoria".
+    - "recentes" para "últimas transações".
+    - "mensal" para "por mês".
+- Caso não seja consulta financeira, retorne: {"intent":"chat"}.
+APENAS JSON.
 `;
 
-function ptBRDateString(date = new Date(), timeZone = "America/Sao_Paulo") {
+function todayBR(tz = "America/Sao_Paulo") {
+  const d = new Date();
   const fmt = new Intl.DateTimeFormat("pt-BR", {
-    timeZone,
+    timeZone: tz,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
-  return fmt.format(date);
+  return fmt.format(d);
 }
 
-export async function parseTransactionWithGemini(userText) {
-  const today = ptBRDateString(new Date(), "America/Sao_Paulo");
+export async function classifyFinanceIntent(userText) {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
   const model = genAI.getGenerativeModel({ model: modelName });
-
   const generationConfig = { responseMimeType: "application/json" };
 
   const contents = [
     {
       role: "user",
       parts: [
-        { text: SYSTEM_PARSER },
-        { text: `Data de referência: ${today}` },
+        { text: ROUTER_INSTRUCTIONS },
+        { text: `Data de referência: ${todayBR()}` },
         { text: `Mensagem: ${userText}` },
       ],
     },
@@ -60,16 +49,11 @@ export async function parseTransactionWithGemini(userText) {
 
   const result = await model.generateContent({ contents, generationConfig });
   const raw = result?.response?.text?.() || "{}";
-
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && parsed.transaction) {
-      return parsed;
-    }
+    return JSON.parse(raw);
   } catch {
-    return { transaction: null };
+    return { intent: "chat" };
   }
-  return { transaction: null };
 }
 
 export async function chatWithGemini(userText, ctx = {}) {
@@ -79,18 +63,20 @@ export async function chatWithGemini(userText, ctx = {}) {
   const SYSTEM_CHAT = `
 Você é um assistente de WhatsApp em português.
 Responda de forma amigável, clara e objetiva.
-Mantenha contexto básico: nome do contato = ${
-    ctx.contactName || "Desconhecido"
-  }.
+Se "financeData" existir no contexto, RESPONDA BASEADO NELE. 
+Se os dados estiverem vazios, diga que não encontrou registros no período solicitado.
+Não invente números.
 `;
-
-  const contents = [
-    {
-      role: "user",
-      parts: [{ text: SYSTEM_CHAT }, { text: `Mensagem: ${userText}` }],
-    },
+  const parts = [
+    { text: SYSTEM_CHAT },
+    { text: `Contexto:\n${JSON.stringify(ctx).slice(0, 6000)}` },
+    { text: `Pergunta do usuário:\n${userText}` },
   ];
 
-  const result = await model.generateContent({ contents });
-  return result?.response?.text?.() || "Certo!";
+  const res = await model.generateContent({
+    contents: [{ role: "user", parts }],
+  });
+  return res?.response?.text?.() || "Certo!";
 }
+
+// (mantém também suas funções anteriores: parseTransactionWithGemini, etc.)
