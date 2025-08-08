@@ -207,9 +207,9 @@ ${
   • Por categoria (um item por linha):
     - NomeCategoria: R$ 0,00
   • Recentes (um item por linha):
-    - DD/MM/AAAA • Categoria • Tipo • R$ 0,00
+    - DD/MM • Categoria • Tipo • R$ 0,00
   • Mensal:
-    - YYYY-MM • Tipo: R$ 0,00
+    - MM • Tipo: R$ 0,00
 `
     : ``
 }

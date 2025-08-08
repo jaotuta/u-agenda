@@ -15,6 +15,26 @@ import {
   getTransactionsByCategory,
 } from "@/lib/db";
 
+function todayBR(tz = "America/Sao_Paulo") {
+  const d = new Date();
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: tz,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+function firstDayOfMonthBR(tz = "America/Sao_Paulo") {
+  const d = new Date();
+  d.setDate(1);
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: tz,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
 function formatTxReply(tx) {
   const valor = Number(tx.amount).toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
@@ -96,24 +116,27 @@ export async function POST(req) {
         const route = await classifyFinanceIntent(text);
         if (route?.intent === "consulta") {
           const range = route.range || {};
-          const period = { from: range.from, to: range.to };
+          const period = {
+            from: range.from || firstDayOfMonthBR(),
+            to: range.to || todayBR(),
+          };
           const typeFilter = route.type || "Todos";
           const focus = route.focus || "totais";
-          const category = route.category; // pode vir undefined
+          const category = route.category && String(route.category).trim();
 
-          const financeData = { period, typeFilter, focus };
+          let financeData = { period, typeFilter, focus };
 
-          if (focus === "recentes" && category) {
-            // Lista de lançamentos por categoria (o caso que você quer)
+          // Se pedir lista por categoria (ex.: “liste gastos com mercado”)
+          if ((focus === "recentes" || /separad/i.test(text)) && category) {
+            financeData.category = category;
             financeData.transactions = await getTransactionsByCategory(
               from,
               period.from,
               period.to,
               category,
               typeFilter,
-              50
+              100
             );
-            financeData.category = category;
           } else if (focus === "recentes") {
             financeData.recent = await getRecentTransactions(
               from,
@@ -145,7 +168,7 @@ export async function POST(req) {
             );
           }
 
-          // Instrução para responder em LISTA
+          // Força o GEMINI a responder em LISTA quando houver dados financeiros
           reply = await chatWithGemini(
             text,
             { contactName, waId: from, financeData },
