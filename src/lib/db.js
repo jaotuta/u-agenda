@@ -1,3 +1,4 @@
+// lib/db.js
 import { sql } from "@vercel/postgres";
 
 export function parseBrDateToISO(br) {
@@ -10,6 +11,48 @@ export function parseBrDateToISO(br) {
   }
   const [dd, mm, yyyy] = br.split("/");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// --- NOVO: helpers de normalização (evita falha no CHECK do Postgres)
+function normalizeType(t) {
+  const s = String(t || "").toLowerCase();
+  if (s.startsWith("d")) return "Débito";
+  if (s.startsWith("c")) return "Crédito";
+  return null;
+}
+function sanitizeCategory(c) {
+  const s = String(c || "").trim();
+  return s.length ? s : "Outros";
+}
+
+// --- NOVO: inserir transação (idempotente por message_id)
+export async function saveTransaction({
+  messageId,
+  waId,
+  contactName,
+  type,
+  category,
+  amount,
+  dateBr,
+  rawText,
+}) {
+  const normType = normalizeType(type);
+  if (!normType) throw new Error(`Tipo inválido: ${type}`);
+
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt < 0)
+    throw new Error(`Valor inválido: ${amount}`);
+
+  const iso = parseBrDateToISO(dateBr);
+  const cat = sanitizeCategory(category);
+
+  const { rows } = await sql`
+    INSERT INTO transactions (message_id, wa_id, contact_name, type, category, amount, date, raw_text)
+    VALUES (${messageId}, ${waId}, ${contactName}, ${normType}, ${cat}, ${amt}, ${iso}, ${rawText})
+    ON CONFLICT (message_id) DO NOTHING
+    RETURNING id, message_id;
+  `;
+  return rows[0] || null;
 }
 
 export async function getTotals(waId, fromBr, toBr, typeFilter = "Todos") {
