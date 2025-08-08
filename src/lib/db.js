@@ -127,3 +127,13 @@ export async function getMonthly(waId, fromBr, toBr, typeFilter = "Todos") {
   `;
   return rows;
 }
+
+export async function markProcessed(messageId) {
+  const { rows } = await sql`
+    INSERT INTO processed_inbound (message_id)
+    VALUES (${messageId})
+    ON CONFLICT (message_id) DO NOTHING
+    RETURNING message_id;
+  `;
+  return !!rows[0]; // true = primeira vez, false = duplicado
+}

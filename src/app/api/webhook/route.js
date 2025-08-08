@@ -35,6 +35,7 @@ export async function POST(req) {
     const message = value?.messages?.[0];
     const statuses = value?.statuses?.[0];
 
+    if (!message && !statuses) return NextResponse.json({ ok: true });
     if (statuses) return NextResponse.json({ ok: true });
 
     if (message) {
@@ -42,6 +43,14 @@ export async function POST(req) {
       const type = message.type;
       const msgId = message.id;
       const contactName = value?.contacts?.[0]?.profile?.name;
+
+      if (msgId) {
+        const firstTime = await markProcessed(msgId);
+        if (!firstTime) {
+          // é reentrega do Meta — já respondemos antes
+          return NextResponse.json({ ok: true });
+        }
+      }
 
       const text =
         type === "text"
