@@ -169,17 +169,42 @@ export async function parseTransactionWithGemini(userText) {
 // ————————————————————————————————————————————————————————————————————
 // Chat geral (usa financeData quando disponível)
 // ————————————————————————————————————————————————————————————————————
-export async function chatWithGemini(userText, ctx = {}) {
+export async function chatWithGemini(userText, ctx = {}, opts = {}) {
   const model = getModel();
   if (!model) return "IA não configurada no momento.";
 
+  const isFinance = !!ctx.financeData;
+  const wantList = opts.format === "list";
+
   const SYSTEM_CHAT = `
 Você é um assistente de WhatsApp em português.
-Responda de forma amigável, clara e objetiva.
-Se \"financeData\" existir no contexto, RESPONDA BASEADO NELE.
-Se os dados estiverem vazios, diga que não encontrou registros no período solicitado.
-Não invente números.
-`;
+${
+  isFinance
+    ? `
+REGRAS PARA CONSULTAS FINANCEIRAS:
+- RESPONDA APENAS com base no objeto "financeData" do contexto. NÃO invente números.
+- Se "financeData" estiver vazio, diga que não encontrou registros no período.
+${
+  wantList
+    ? `
+- FORMATO DE SAÍDA (LISTA):
+  • Para totais:
+    - Débitos: R$ 0,00
+    - Créditos: R$ 0,00
+  • Por categoria (um item por linha):
+    - NomeCategoria: R$ 0,00
+  • Recentes (um item por linha):
+    - DD/MM/AAAA • Categoria • Tipo • R$ 0,00
+  • Mensal:
+    - YYYY-MM • Tipo: R$ 0,00
+`
+    : ``
+}
+`
+    : ``
+}
+Se não for consulta financeira, responda normalmente de forma curta e clara.
+`.trim();
 
   const parts = [
     { text: SYSTEM_CHAT },
