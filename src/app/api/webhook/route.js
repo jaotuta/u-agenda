@@ -85,52 +85,101 @@ export async function POST(req) {
         const route = await classifyFinanceIntent(text);
         if (route?.intent === "consulta") {
           const range = route.range || {};
-          const period = {
-            from: range.from,
-            to: range.to,
-          };
+          const period = { from: range.from, to: range.to };
           const typeFilter = route.type || "Todos";
           const focus = route.focus || "totais";
 
-          // Busca conforme foco
-          let financeData = { period, typeFilter, focus };
+          let reply = "";
+
           if (focus === "totais") {
-            financeData.totals = await getTotals(
+            const totals = await getTotals(
               from,
               period.from,
               period.to,
               typeFilter
             );
+            const deb = Number(totals?.total_debitos || 0).toLocaleString(
+              "pt-BR",
+              { minimumFractionDigits: 2 }
+            );
+            const cre = Number(totals?.total_creditos || 0).toLocaleString(
+              "pt-BR",
+              { minimumFractionDigits: 2 }
+            );
+            reply =
+              `📊 Resumo (${typeFilter}) — ${period.from} a ${period.to}\n` +
+              `- Débitos: R$ ${deb}\n` +
+              `- Créditos: R$ ${cre}`;
           } else if (focus === "categorias") {
-            financeData.byCategory = await getTotalsByCategory(
+            const rows = await getTotalsByCategory(
               from,
               period.from,
               period.to,
               typeFilter
             );
+            reply =
+              `📂 Por categoria (${typeFilter}) — ${period.from} a ${period.to}\n` +
+              (rows.length
+                ? rows
+                    .map(
+                      (r) =>
+                        `- ${r.category}: R$ ${Number(r.total).toLocaleString(
+                          "pt-BR",
+                          { minimumFractionDigits: 2 }
+                        )}`
+                    )
+                    .join("\n")
+                : "Nenhum registro no período.");
           } else if (focus === "recentes") {
-            financeData.recent = await getRecentTransactions(
+            const rows = await getRecentTransactions(
               from,
               period.from,
               period.to,
               typeFilter,
               5
             );
+            reply =
+              `🕑 Recentes (${typeFilter}) — ${period.from} a ${period.to}\n` +
+              (rows.length
+                ? rows
+                    .map(
+                      (tx) =>
+                        `- ${tx.date} • ${tx.category} • ${
+                          tx.type
+                        } • R$ ${Number(tx.amount).toLocaleString("pt-BR", {
+                          minimumFractionDigits: 2,
+                        })}`
+                    )
+                    .join("\n")
+                : "Nenhum registro no período.");
           } else if (focus === "mensal") {
-            financeData.monthly = await getMonthly(
+            const rows = await getMonthly(
               from,
               period.from,
               period.to,
               typeFilter
             );
+            reply =
+              `📅 Totais mensais (${typeFilter})\n` +
+              (rows.length
+                ? rows
+                    .map(
+                      (r) =>
+                        `- ${r.month} • ${r.type}: R$ ${Number(
+                          r.total
+                        ).toLocaleString("pt-BR", {
+                          minimumFractionDigits: 2,
+                        })}`
+                    )
+                    .join("\n")
+                : "Nenhum registro.");
+          } else {
+            reply =
+              "Não entendi o tipo de consulta. Tente: totais, categorias, recentes ou mensal.";
           }
 
-          // 3) Envia a pergunta + dados para o Gemini responder baseado no DB
-          reply = await chatWithGemini(text, {
-            contactName,
-            waId: from,
-            financeData,
-          });
+          await waSendText(from, reply);
+          return NextResponse.json({ ok: true });
         } else {
           // 3b) Não é consulta → chat normal
           reply = await chatWithGemini(text, { contactName, waId: from });
