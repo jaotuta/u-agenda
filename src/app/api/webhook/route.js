@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { waSendText, waMarkRead } from "@/lib/whatsapp";
+import { generateReply } from "@/lib/gemini"; // <— novo
 
 export async function GET(req) {
   const url = new URL(req.url);
@@ -42,12 +43,16 @@ export async function POST(req) {
 
       if (msgId) await waMarkRead(msgId);
 
-      const reply =
-        !text
-          ? "Recebi sua mensagem! (não-texto)"
-          : text.toLowerCase().includes("menu")
-          ? "Menu:\n1) Preços\n2) Suporte\n3) Falar com humano"
-          : `Você disse: "${text}". Como posso ajudar?`;
+      // ——— IA (Gemini) ———
+      const context = {
+        contactName: value?.contacts?.[0]?.profile?.name,
+        waId: value?.contacts?.[0]?.wa_id,
+        // aqui você pode incluir dados do seu CRM, horário local, etc.
+      };
+
+      const reply = text
+        ? await generateReply(text, context)
+        : "Recebi sua mensagem! (não-texto)";
 
       await waSendText(from, reply);
     }
