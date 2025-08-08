@@ -1,34 +1,96 @@
+// lib/gemini.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 
-// prompt de sistema p/ manter tom/idioma do bot
-const SYSTEM_PROMPT = `
-Você é um assistente de WhatsApp em português do Brasil.
-- Seja claro, curto e útil.
-- Se a pergunta for técnica, dê passos práticos.
-- Se não souber, diga que não sabe e sugira próximo passo.
-- Nunca exponha chaves/segredos.
+const SYSTEM_PARSER = `
+Você atua como um parser financeiro em pt-BR. Sua tarefa é transformar uma mensagem de WhatsApp
+em um JSON bem-formado representando uma transação financeira.
+
+REGRAS:
+- Débito = gasto/saída de dinheiro
+- Crédito = entrada/recebimento de dinheiro
+- "category": uma única palavra ou termo simples (ex: Mercado, Alimentação, Transporte, Saúde, Lazer, Educação, Eletrônicos, Vestuário, Outros, Receita).
+- "amount": número em reais (ponto decimal), sem "R$".
+- "date": no formato DD/MM/AAAA (America/Sao_Paulo), usando data atual a menos que o texto especifique outra.
+
+Se o texto não descrever uma transação, responda:
+{ "transaction": null }
+
+FORMATO DE SAÍDA (somente JSON):
+{
+  "transaction": {
+    "type": "Débito" | "Crédito",
+    "category": "string",
+    "amount": number,
+    "date": "DD/MM/AAAA"
+  }
+}
+ou
+{ "transaction": null }
 `;
 
-export async function generateReply(userText, ctx = {}) {
-  if (!process.env.GOOGLE_AI_API_KEY) {
-    return "IA indisponível no momento (chave não configurada).";
-  }
+function ptBRDateString(date = new Date(), timeZone = "America/Sao_Paulo") {
+  const fmt = new Intl.DateTimeFormat("pt-BR", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return fmt.format(date);
+}
+
+export async function parseTransactionWithGemini(userText) {
+  const today = ptBRDateString(new Date(), "America/Sao_Paulo");
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
   const model = genAI.getGenerativeModel({ model: modelName });
 
-  const parts = [
-    { text: SYSTEM_PROMPT },
-    { text: `Contexto: ${JSON.stringify(ctx).slice(0, 4000)}` },
-    { text: `Usuário: ${userText}` },
-    { text: "Responda em uma única mensagem." },
+  const generationConfig = { responseMimeType: "application/json" };
+
+  const contents = [
+    {
+      role: "user",
+      parts: [
+        { text: SYSTEM_PARSER },
+        { text: `Data de referência: ${today}` },
+        { text: `Mensagem: ${userText}` },
+      ],
+    },
   ];
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts }],
-  });
-  const text = result.response?.text?.() || "";
-  // fallback seguro
-  return (text || "Certo! Como posso ajudar?").slice(0, 4000); // WhatsApp tem limites de tamanho prático
+  const result = await model.generateContent({ contents, generationConfig });
+  const raw = result?.response?.text?.() || "{}";
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.transaction) {
+      return parsed;
+    }
+  } catch {
+    return { transaction: null };
+  }
+  return { transaction: null };
+}
+
+export async function chatWithGemini(userText, ctx = {}) {
+  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const SYSTEM_CHAT = `
+Você é um assistente de WhatsApp em português.
+Responda de forma amigável, clara e objetiva.
+Mantenha contexto básico: nome do contato = ${
+    ctx.contactName || "Desconhecido"
+  }.
+`;
+
+  const contents = [
+    {
+      role: "user",
+      parts: [{ text: SYSTEM_CHAT }, { text: `Mensagem: ${userText}` }],
+    },
+  ];
+
+  const result = await model.generateContent({ contents });
+  return result?.response?.text?.() || "Certo!";
 }

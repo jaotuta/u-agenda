@@ -1,6 +1,15 @@
+// app/api/webhook/route.js
 import { NextResponse } from "next/server";
 import { waSendText, waMarkRead } from "@/lib/whatsapp";
-import { generateReply } from "@/lib/gemini"; // <— novo
+import { parseTransactionWithGemini, chatWithGemini } from "@/lib/gemini";
+
+function formatReply(tx) {
+  const valor = tx.amount.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `Tipo: ${tx.type}\nCategoria: ${tx.category}\nValor: ${valor}\nData: ${tx.date}`;
+}
 
 export async function GET(req) {
   const url = new URL(req.url);
@@ -43,16 +52,23 @@ export async function POST(req) {
 
       if (msgId) await waMarkRead(msgId);
 
-      // ——— IA (Gemini) ———
-      const context = {
-        contactName: value?.contacts?.[0]?.profile?.name,
-        waId: value?.contacts?.[0]?.wa_id,
-        // aqui você pode incluir dados do seu CRM, horário local, etc.
-      };
+      let reply = "Não entendi. Pode reformular?";
 
-      const reply = text
-        ? await generateReply(text, context)
-        : "Recebi sua mensagem! (não-texto)";
+      if (text) {
+        const { transaction } = await parseTransactionWithGemini(text);
+
+        if (transaction) {
+          reply = formatReply(transaction);
+        } else {
+          const context = {
+            contactName: value?.contacts?.[0]?.profile?.name,
+            waId: value?.contacts?.[0]?.wa_id,
+          };
+          reply = await chatWithGemini(text, context);
+        }
+      } else {
+        reply = "Recebi sua mensagem! (não-texto)";
+      }
 
       await waSendText(from, reply);
     }
