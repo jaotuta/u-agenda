@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { waSendText, waMarkRead } from "@/lib/whatsapp";
+import { appendTransactionToSheet } from "@/lib/sheets";
 import {
   parseTransactionWithGemini,
   chatWithGemini,
@@ -105,6 +106,31 @@ export async function POST(req) {
             console.log("saved tx:", saved); // log rápido p/ ver se inseriu ou foi DO NOTHING
           } catch (err) {
             console.error("saveTransaction error:", err?.message || err);
+          }
+
+          const reply = formatTxReply(transaction);
+          await waSendText(from, reply);
+          return NextResponse.json({ ok: true });
+        }
+
+        if (transaction) {
+          const txData = {
+            messageId: msgId,
+            waId: from,
+            contactName,
+            type: transaction.type,
+            category: transaction.category,
+            amount: transaction.amount,
+            dateBr: transaction.date,
+            rawText: text,
+          };
+
+          try {
+            await saveTransaction(txData); // salva no Postgres
+            await appendTransactionToSheet(process.env.SPREADSHEET_ID, txData); // salva no Sheets
+            console.log("Transação salva no banco e no Google Sheets!");
+          } catch (err) {
+            console.error("Erro ao salvar:", err);
           }
 
           const reply = formatTxReply(transaction);
