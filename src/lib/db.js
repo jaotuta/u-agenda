@@ -144,17 +144,19 @@ export async function getTransactionsByCategory(
   toBr,
   category,
   typeFilter = "Todos",
-  limit = 20
+  limit = 50
 ) {
   const from = parseBrDateToISO(fromBr);
   const to = parseBrDateToISO(toBr);
+  const needle = `%${String(category || "").trim()}%`; // coringa nos dois lados
+
   const { rows } = await sql`
     SELECT type, category, amount, to_char(date,'DD/MM/YYYY') as date
     FROM transactions
     WHERE wa_id = ${waId}
       AND date BETWEEN ${from} AND ${to}
       AND (${typeFilter} = 'Todos' OR type = ${typeFilter})
-      AND LOWER(category) = LOWER(${category})
+      AND LOWER(category) ILIKE LOWER(${needle})
     ORDER BY date ASC
     LIMIT ${limit}
   `;
