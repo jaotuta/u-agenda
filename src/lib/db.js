@@ -137,3 +137,26 @@ export async function markProcessed(messageId) {
   `;
   return !!rows[0]; // true = primeira vez, false = duplicado
 }
+
+export async function getTransactionsByCategory(
+  waId,
+  fromBr,
+  toBr,
+  category,
+  typeFilter = "Todos",
+  limit = 20
+) {
+  const from = parseBrDateToISO(fromBr);
+  const to = parseBrDateToISO(toBr);
+  const { rows } = await sql`
+    SELECT type, category, amount, to_char(date,'DD/MM/YYYY') as date
+    FROM transactions
+    WHERE wa_id = ${waId}
+      AND date BETWEEN ${from} AND ${to}
+      AND (${typeFilter} = 'Todos' OR type = ${typeFilter})
+      AND LOWER(category) = LOWER(${category})
+    ORDER BY date ASC
+    LIMIT ${limit}
+  `;
+  return rows;
+}

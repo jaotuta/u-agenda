@@ -12,6 +12,7 @@ import {
   getMonthly,
   saveTransaction,
   markProcessed,
+  getTransactionsByCategory,
 } from "@/lib/db";
 
 function formatTxReply(tx) {
@@ -95,21 +96,31 @@ export async function POST(req) {
         const route = await classifyFinanceIntent(text);
         if (route?.intent === "consulta") {
           const range = route.range || {};
-          const period = {
-            from: range.from,
-            to: range.to,
-          };
+          const period = { from: range.from, to: range.to };
           const typeFilter = route.type || "Todos";
           const focus = route.focus || "totais";
+          const category = route.category; // pode vir undefined
 
-          // Busca conforme foco
-          let financeData = { period, typeFilter, focus };
-          if (focus === "totais") {
-            financeData.totals = await getTotals(
+          const financeData = { period, typeFilter, focus };
+
+          if (focus === "recentes" && category) {
+            // Lista de lançamentos por categoria (o caso que você quer)
+            financeData.transactions = await getTransactionsByCategory(
               from,
               period.from,
               period.to,
-              typeFilter
+              category,
+              typeFilter,
+              50
+            );
+            financeData.category = category;
+          } else if (focus === "recentes") {
+            financeData.recent = await getRecentTransactions(
+              from,
+              period.from,
+              period.to,
+              typeFilter,
+              50
             );
           } else if (focus === "categorias") {
             financeData.byCategory = await getTotalsByCategory(
@@ -118,14 +129,6 @@ export async function POST(req) {
               period.to,
               typeFilter
             );
-          } else if (focus === "recentes") {
-            financeData.recent = await getRecentTransactions(
-              from,
-              period.from,
-              period.to,
-              typeFilter,
-              5
-            );
           } else if (focus === "mensal") {
             financeData.monthly = await getMonthly(
               from,
@@ -133,14 +136,24 @@ export async function POST(req) {
               period.to,
               typeFilter
             );
+          } else {
+            financeData.totals = await getTotals(
+              from,
+              period.from,
+              period.to,
+              typeFilter
+            );
           }
 
-          // 3) Envia a pergunta + dados para o Gemini responder baseado no DB
-          reply = await chatWithGemini(text, {
-            contactName,
-            waId: from,
-            financeData,
-          });
+          // Instrução para responder em LISTA
+          reply = await chatWithGemini(
+            text,
+            { contactName, waId: from, financeData },
+            { format: "list" }
+          );
+
+          await waSendText(from, reply);
+          return NextResponse.json({ ok: true });
         } else {
           // 3b) Não é consulta → chat normal
           reply = await chatWithGemini(text, { contactName, waId: from });
