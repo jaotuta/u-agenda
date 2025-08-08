@@ -11,6 +11,7 @@ import {
   getRecentTransactions,
   getMonthly,
   saveTransaction,
+  markProcessed,
 } from "@/lib/db";
 
 function formatTxReply(tx) {
