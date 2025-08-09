@@ -90,6 +90,11 @@ export async function POST(req) {
       let reply = "Não entendi. Pode reformular?";
 
       if (text) {
+        if (/^dashboard$/i.test(text.trim())) {
+          const dashboardUrl = `https://u-agenda.vercel.app/usuarios/${from}/resumo`;
+          await waSendText(from, `Aqui está seu dashboard:\n${dashboardUrl}`);
+          return NextResponse.json({ ok: true });
+        }
         // 1) Primeiro: continua registrando transações (se for o caso)
         const { transaction } = await parseTransactionWithGemini(text);
 
