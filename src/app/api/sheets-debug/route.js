@@ -1,6 +1,5 @@
 // lib/sheets.js
 import { google } from "googleapis";
-export const runtime = "nodejs";
 let sheetsClient = null;
 
 function summarize(key) {
