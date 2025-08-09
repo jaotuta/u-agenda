@@ -1,23 +1,29 @@
 // lib/sheets.js
 import { google } from "googleapis";
+import { JWT } from "google-auth-library";
 
 let sheetsClient = null;
 
 async function getAuth() {
-  const client_email = process.env.GOOGLE_CLIENT_EMAIL;
-  const keyB64 = process.env.GOOGLE_PRIVATE_KEY_B64;
+  const email = process.env.GOOGLE_CLIENT_EMAIL;
+  const b64 = process.env.GOOGLE_PRIVATE_KEY_B64;
+  if (!email || !b64)
+    throw new Error("GOOGLE_CLIENT_EMAIL ou GOOGLE_PRIVATE_KEY_B64 ausentes");
 
-  if (!client_email || !keyB64) {
-    throw new Error(
-      "Variáveis GOOGLE_CLIENT_EMAIL ou GOOGLE_PRIVATE_KEY_B64 ausentes"
-    );
+  const key = Buffer.from(b64, "base64")
+    .toString("utf8")
+    .replace(/\r\n/g, "\n")
+    .trim();
+
+  if (!key.includes("BEGIN PRIVATE KEY")) {
+    throw new Error("GOOGLE_PRIVATE_KEY_B64 inválida (sem PEM)");
   }
 
-  const private_key = Buffer.from(keyB64, "base64").toString("utf8");
-
-  const auth = new google.auth.JWT(client_email, null, private_key, [
-    "https://www.googleapis.com/auth/spreadsheets",
-  ]);
+  const auth = new JWT({
+    email,
+    key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
   await auth.authorize();
   return auth;
 }
@@ -30,36 +36,31 @@ export async function getSheetsClient() {
 }
 
 export async function appendTransactionToSheet(tx) {
-  try {
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    if (!spreadsheetId) throw new Error("SPREADSHEET_ID ausente");
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  if (!spreadsheetId) throw new Error("SPREADSHEET_ID ausente");
 
-    const sheets = await getSheetsClient();
+  const sheets = await getSheetsClient();
+  const values = [
+    [
+      tx.date,
+      tx.type,
+      tx.category,
+      Number(tx.amount),
+      tx.contactName || "",
+      tx.waId || "",
+      tx.rawText || "",
+      tx.messageId || "",
+      new Date().toISOString(),
+    ],
+  ];
 
-    const values = [
-      [
-        tx.date,
-        tx.type,
-        tx.category,
-        Number(tx.amount),
-        tx.contactName || "",
-        tx.waId || "",
-        tx.rawText || "",
-        tx.messageId || "",
-        new Date().toISOString(),
-      ],
-    ];
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "Transações!A:I",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values },
+  });
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "Transações!A:I",
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values },
-    });
-
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error.message };
-  }
+  return { ok: true };
 }
