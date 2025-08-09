@@ -5,21 +5,19 @@ let sheetsClient = null;
 
 async function getAuth() {
   const client_email = process.env.GOOGLE_CLIENT_EMAIL;
-  let private_key = process.env.GOOGLE_PRIVATE_KEY;
+  const keyB64 = process.env.GOOGLE_PRIVATE_KEY_B64;
 
-  if (!client_email || !private_key) {
+  if (!client_email || !keyB64) {
     throw new Error(
-      "Variáveis de ambiente GOOGLE_CLIENT_EMAIL ou GOOGLE_PRIVATE_KEY ausentes"
+      "Variáveis GOOGLE_CLIENT_EMAIL ou GOOGLE_PRIVATE_KEY_B64 ausentes"
     );
   }
 
-  // Substitui \n literais por quebras reais
-  private_key = private_key.replace(/\\n/g, "\n");
+  const private_key = Buffer.from(keyB64, "base64").toString("utf8");
 
   const auth = new google.auth.JWT(client_email, null, private_key, [
     "https://www.googleapis.com/auth/spreadsheets",
   ]);
-
   await auth.authorize();
   return auth;
 }
