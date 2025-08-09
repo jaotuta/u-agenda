@@ -105,11 +105,18 @@ export async function POST(req) {
           };
 
           try {
-            await saveTransaction(txData); // salva no Postgres
-            await appendTransactionToSheet(process.env.SPREADSHEET_ID, txData); // salva no Sheets
-            console.log("Transação salva no banco e no Google Sheets!");
+            await saveTransaction(txData);
           } catch (err) {
-            console.error("Erro ao salvar:", err);
+            console.error("saveTransaction error:", err?.message || err);
+          }
+
+          try {
+            await appendTransactionToSheet(process.env.SPREADSHEET_ID, txData);
+          } catch (err) {
+            console.error(
+              "appendTransactionToSheet error:",
+              err?.message || err
+            );
           }
 
           const reply = formatTxReply(transaction);
