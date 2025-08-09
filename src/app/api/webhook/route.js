@@ -112,7 +112,7 @@ export async function POST(req) {
           }
 
           try {
-            await appendTransactionToSheet(process.env.SPREADSHEET_ID, txData);
+            await appendTransactionToSheet(txData);
           } catch (err) {
             console.error(
               "appendTransactionToSheet error:",
@@ -120,8 +120,7 @@ export async function POST(req) {
             );
           }
 
-          const reply = formatTxReply(transaction);
-          await waSendText(from, reply);
+          await waSendText(from, formatTxReply(transaction));
           return NextResponse.json({ ok: true });
         }
 
@@ -195,11 +194,8 @@ export async function POST(req) {
           reply = await chatWithGemini(text, { contactName, waId: from });
         }
       } else {
-        reply = await chatWithGemini(
-          text,
-          { contactName, waId: from, financeData },
-          { format: "list" } // <— instrução para responder em formato de lista
-        );
+        reply =
+          "Recebi sua mensagem! Me envie em texto para eu entender certinho. 🙂";
       }
 
       await waSendText(from, reply);
