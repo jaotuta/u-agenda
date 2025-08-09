@@ -138,7 +138,7 @@ export async function POST(req) {
 
           let financeData = { period, typeFilter, focus };
 
-          // Se pedir lista por categoria (ex.: “liste gastos com mercado”)
+          // Se pedir lista por categoria (ex.: “liste gastos com mercado”)---------------
           if ((focus === "recentes" || /separad/i.test(text)) && category) {
             financeData.category = category;
             financeData.transactions = await getTransactionsByCategory(
