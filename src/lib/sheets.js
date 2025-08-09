@@ -3,91 +3,82 @@ import { google } from "googleapis";
 
 let sheetsClient = null;
 
-function summarizeKey(key) {
+function summarize(key) {
   if (!key) return { present: false };
-  const lines = key.split(/\r?\n/);
+  const hasEscaped = key.includes("\\n");
+  const hasReal = key.includes("\n");
+  const lines = key.split(/\r?\n/).length;
   return {
     present: true,
     length: key.length,
-    lines: lines.length,
-    startsWith: lines[0],
-    endsWith: lines[lines.length - 1],
+    newlineStyle: hasEscaped ? "\\n" : hasReal ? "\\n(real)" : "none",
+    lines,
+    startsWith: key.slice(0, 30),
+    endsWith: key.slice(-30),
+    hasHeader: key.includes("BEGIN PRIVATE KEY"),
   };
 }
 
 function readCreds() {
-  const emailEnv = process.env.GOOGLE_CLIENT_EMAIL;
-  let keyEnv = process.env.GOOGLE_PRIVATE_KEY;
+  const email = process.env.GOOGLE_CLIENT_EMAIL || null;
+  let key = process.env.GOOGLE_PRIVATE_KEY || null;
 
-  console.log("[sheets] has GOOGLE_CLIENT_EMAIL:", !!emailEnv);
-  console.log(
-    "[sheets] has GOOGLE_PRIVATE_KEY:",
-    !!keyEnv,
-    "len:",
-    keyEnv?.length || 0
-  );
+  console.log("[sheets] PATH: two-envs?", { hasEmail: !!email, hasKey: !!key });
 
-  // Caminho A: duas envs separadas (preferido)
-  if (emailEnv && keyEnv) {
-    // Se vier escapado (\\n), normaliza para \n
-    if (keyEnv.includes("\\n")) keyEnv = keyEnv.replace(/\\n/g, "\n");
+  if (email && key) {
+    // normaliza: \\n -> \n (faz ANTES de logar o sumário final)
+    if (key.includes("\\n")) key = key.replace(/\\r?\\n/g, "\n");
 
-    const sum = summarizeKey(keyEnv);
-    console.log("[sheets] private_key summary:", {
+    const sum = summarize(key);
+    console.log("[sheets] USING two-envs; key summary AFTER replace:", {
       present: sum.present,
       length: sum.length,
       lines: sum.lines,
-      startsWith: sum.startsWith,
-      endsWith: sum.endsWith,
+      newlineStyle: sum.newlineStyle,
+      hasHeader: sum.hasHeader,
     });
 
-    return { client_email: emailEnv, private_key: keyEnv };
+    return { client_email: email, private_key: key };
   }
 
-  // Caminho B: JSON único
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  console.log("[sheets] has GOOGLE_SERVICE_ACCOUNT_KEY:", !!raw);
+  // fallback: JSON único
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || null;
+  console.log("[sheets] PATH: service-json?", !!raw);
+
   if (!raw) {
     throw new Error(
-      "Nenhuma credencial encontrada (defina GOOGLE_CLIENT_EMAIL/GOOGLE_PRIVATE_KEY ou GOOGLE_SERVICE_ACCOUNT_KEY)."
+      "Credenciais ausentes (defina GOOGLE_CLIENT_EMAIL/GOOGLE_PRIVATE_KEY OU GOOGLE_SERVICE_ACCOUNT_KEY)."
     );
   }
 
-  let parsed;
+  let json;
   try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    console.error("[sheets] JSON.parse falhou em GOOGLE_SERVICE_ACCOUNT_KEY");
+    json = JSON.parse(raw);
+  } catch {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY inválida (JSON parse falhou).");
   }
 
-  if (!parsed.client_email || !parsed.private_key) {
-    console.error("[sheets] service JSON sem client_email/private_key");
-    throw new Error(
-      "client_email/private_key ausentes em GOOGLE_SERVICE_ACCOUNT_KEY."
-    );
-  }
+  let pk = json.private_key || "";
+  if (pk.includes("\\n")) pk = pk.replace(/\\r?\\n/g, "\n");
 
-  // Normaliza \n
-  if (parsed.private_key.includes("\\n"))
-    parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
-  const sum = summarizeKey(parsed.private_key);
-  console.log("[sheets] private_key (from JSON) summary:", {
+  const sum = summarize(pk);
+  console.log("[sheets] USING service-json; key summary AFTER replace:", {
     present: sum.present,
     length: sum.length,
     lines: sum.lines,
-    startsWith: sum.startsWith,
-    endsWith: sum.endsWith,
+    newlineStyle: sum.newlineStyle,
+    hasHeader: sum.hasHeader,
   });
 
-  return parsed;
+  return { client_email: json.client_email, private_key: pk };
 }
 
 async function getAuth() {
   const { client_email, private_key } = readCreds();
 
+  if (!client_email) throw new Error("client_email ausente.");
   if (!private_key || !private_key.includes("BEGIN PRIVATE KEY")) {
-    console.error("[sheets] private_key sem header BEGIN PRIVATE KEY");
+    console.error("[sheets] private_key inválida:", summarize(private_key));
     throw new Error("private_key inválida ou vazia.");
   }
 
