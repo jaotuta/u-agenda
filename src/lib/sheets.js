@@ -6,11 +6,9 @@ function summarize(key) {
   if (!key) return { present: false };
   const hasEscaped = key.includes("\\n");
   const hasReal = key.includes("\n");
-  const lines = key.split(/\r?\n/).length;
   return {
     present: true,
     length: key.length,
-    lines,
     style: hasEscaped ? "\\n" : hasReal ? "\\n(real)" : "none",
     hasHeader: key.includes("BEGIN PRIVATE KEY"),
   };
@@ -19,37 +17,29 @@ function summarize(key) {
 function readCreds() {
   const email = process.env.GOOGLE_CLIENT_EMAIL || null;
 
-  // 1) Prioriza base64 (se usar)
+  // 1) B64 (opcional)
   const b64 = process.env.GOOGLE_PRIVATE_KEY_B64 || null;
   if (email && b64) {
     const key = Buffer.from(b64, "base64").toString("utf8");
-    console.log("[sheets] using GOOGLE_PRIVATE_KEY_B64:", summarize(key));
+    console.log("[sheets] using B64:", summarize(key));
     return { client_email: email, private_key: key };
   }
 
-  // 2) Depois plaintext com \\n
+  // 2) Plaintext com \n
   let key = process.env.GOOGLE_PRIVATE_KEY || null;
   if (email && key) {
-    if (key.includes("\\n")) key = key.replace(/\\r?\\n/g, "\n");
-    console.log(
-      "[sheets] using GOOGLE_PRIVATE_KEY (after replace):",
-      summarize(key)
-    );
+    // cobre \\n, \r\n e etc
+    key = key.replace(/\\r?\\n/g, "\n");
+    console.log("[sheets] using PLAIN:", summarize(key));
     return { client_email: email, private_key: key };
   }
 
-  // 3) Fallback: JSON único
+  // 3) JSON único (fallback)
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || null;
   if (raw) {
-    let json;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY inválida");
-    }
-    let pk = json.private_key || "";
-    if (pk.includes("\\n")) pk = pk.replace(/\\r?\\n/g, "\n");
-    console.log("[sheets] using GOOGLE_SERVICE_ACCOUNT_KEY:", summarize(pk));
+    const json = JSON.parse(raw);
+    let pk = (json.private_key || "").replace(/\\r?\\n/g, "\n");
+    console.log("[sheets] using JSON:", summarize(pk));
     return { client_email: json.client_email, private_key: pk };
   }
 
@@ -79,30 +69,56 @@ export async function getSheetsClient() {
   return sheetsClient;
 }
 
-export async function appendTransactionToSheet(spreadsheetId, tx) {
-  if (!spreadsheetId) throw new Error("SPREADSHEET_ID ausente");
-  console.log("[sheets] append →", spreadsheetId.slice(0, 8) + "...");
-  const sheets = await getSheetsClient();
-  const values = [
-    [
-      tx.messageId ?? "",
-      tx.waId ?? "",
-      tx.contactName ?? "",
-      tx.type ?? "",
-      tx.category ?? "",
-      Number(tx.amount) ?? 0,
-      tx.dateBr ?? "",
-      tx.rawText ?? "",
-      new Date().toISOString(),
-    ],
-  ];
-  const res = await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: "A1",
-    valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: { values },
-  });
-  console.log("[sheets] append OK →", res.data?.updates?.updatedRange);
-  return res.data;
+export async function appendTransactionToSheet(tx) {
+  try {
+    console.log("=== appendTransactionToSheet ===");
+    console.log("ENV email:", !!process.env.GOOGLE_CLIENT_EMAIL);
+    console.log(
+      "ENV key:",
+      !!process.env.GOOGLE_PRIVATE_KEY ||
+        !!process.env.GOOGLE_PRIVATE_KEY_B64 ||
+        !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY
+    );
+
+    const spreadsheetId = process.env.SPREADSHEET_ID; // <— padronize aqui!
+    if (!spreadsheetId) throw new Error("SPREADSHEET_ID ausente");
+    console.log("Using spreadsheetId:", spreadsheetId.slice(0, 8) + "...");
+
+    const sheets = await getSheetsClient();
+
+    // Ajuste o nome da aba conforme existir na sua planilha
+    const range = "Transações!A:I"; // 9 colunas (inclui timestamp)
+    const values = [
+      [
+        tx.date, // A
+        tx.type, // B
+        tx.category, // C
+        Number(tx.amount),
+        tx.contactName || "",
+        tx.waId || "",
+        tx.rawText || "",
+        tx.messageId || "",
+        new Date().toISOString(), // timestamp
+      ],
+    ];
+
+    console.log("Append range:", range, "values cols:", values[0].length);
+
+    const res = await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range,
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values },
+    });
+
+    console.log(
+      "Sheets append OK:",
+      res.data?.updates?.updatedRange || res.status
+    );
+    return { ok: true };
+  } catch (error) {
+    console.error("appendTransactionToSheet error:", error?.message || error);
+    return { ok: false, error: String(error?.message || error) };
+  }
 }
