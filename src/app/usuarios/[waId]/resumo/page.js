@@ -1,4 +1,3 @@
-// app/usuarios/[waId]/resumo/page.js
 import {
   getTotals,
   getTotalsByCategory,
@@ -6,15 +5,26 @@ import {
   getMonthly,
 } from "@/lib/db";
 
-function toParams(searchParams) {
-  const from = searchParams.get("from") || null; // "DD/MM/AAAA"
-  const to = searchParams.get("to") || null;
-  const type = searchParams.get("type") || "Todos"; // "Débito" | "Crédito" | "Todos"
+// Pega somente strings seguras de searchParams
+function getStr(sp, key) {
+  const v = sp?.[key];
+  if (typeof v === "string") return v.trim();
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0].trim();
+  return "";
+}
+
+function toParams(sp) {
+  const from = getStr(sp, "from") || null; // "DD/MM/AAAA"
+  const to = getStr(sp, "to") || null;
+  const typeRaw = getStr(sp, "type");
+  const type =
+    typeRaw === "Débito" || typeRaw === "Crédito" ? typeRaw : "Todos";
   return { from, to, type };
 }
 
 function fmtBRL(v) {
-  return Number(v || 0).toLocaleString("pt-BR", {
+  const n = Number(v || 0);
+  return n.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -22,9 +32,8 @@ function fmtBRL(v) {
 
 export default async function ResumoUsuario({ params, searchParams }) {
   const waId = params.waId;
-  const { from, to, type } = toParams(new URLSearchParams(searchParams));
+  const { from, to, type } = toParams(searchParams || {});
 
-  // Carrega tudo em paralelo
   const [totals, byCategory, recent, monthly] = await Promise.all([
     getTotals(waId, from, to, type),
     getTotalsByCategory(waId, from, to, type),
@@ -45,7 +54,6 @@ export default async function ResumoUsuario({ params, searchParams }) {
       <h1 style={{ marginBottom: 8 }}>Resumo financeiro</h1>
       <div style={{ color: "#666", marginBottom: 24 }}>WA ID: {waId}</div>
 
-      {/* Filtros simples via querystring */}
       <form
         method="GET"
         style={{
@@ -73,7 +81,6 @@ export default async function ResumoUsuario({ params, searchParams }) {
         <button type="submit">Filtrar</button>
       </form>
 
-      {/* Totais */}
       <section
         style={{
           marginBottom: 24,
@@ -93,7 +100,6 @@ export default async function ResumoUsuario({ params, searchParams }) {
         </div>
       </section>
 
-      {/* Por categoria */}
       <section
         style={{
           marginBottom: 24,
@@ -108,7 +114,7 @@ export default async function ResumoUsuario({ params, searchParams }) {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {byCategory.map((c) => (
-              <li key={c.category}>
+              <li key={c.category || "(sem)"}>
                 {c.category || "Sem categoria"} —{" "}
                 <strong>R$ {fmtBRL(c.total)}</strong>
               </li>
@@ -117,7 +123,6 @@ export default async function ResumoUsuario({ params, searchParams }) {
         )}
       </section>
 
-      {/* Últimas transações */}
       <section
         style={{
           marginBottom: 24,
@@ -132,7 +137,7 @@ export default async function ResumoUsuario({ params, searchParams }) {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {recent.map((t, i) => (
-              <li key={i}>
+              <li key={`${t.date}-${t.category}-${i}`}>
                 {t.date} — {t.category} — {t.type} —{" "}
                 <strong>R$ {fmtBRL(t.amount)}</strong>
               </li>
@@ -141,7 +146,6 @@ export default async function ResumoUsuario({ params, searchParams }) {
         )}
       </section>
 
-      {/* Série mensal (últimos 12 meses) */}
       <section
         style={{
           marginBottom: 24,
@@ -156,7 +160,7 @@ export default async function ResumoUsuario({ params, searchParams }) {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {monthly.map((m, i) => (
-              <li key={i}>
+              <li key={`${m.month}-${m.type}-${i}`}>
                 {m.month} — {m.type}: <strong>R$ {fmtBRL(m.total)}</strong>
               </li>
             ))}
