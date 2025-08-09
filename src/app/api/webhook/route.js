@@ -1,4 +1,3 @@
-export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { waSendText, waMarkRead } from "@/lib/whatsapp";
 import { appendTransactionToSheet } from "@/lib/sheets";
@@ -17,6 +16,7 @@ import {
   getTransactionsByCategory,
 } from "@/lib/db";
 
+export const runtime = "nodejs";
 function todayBR(tz = "America/Sao_Paulo") {
   const d = new Date();
   return new Intl.DateTimeFormat("pt-BR", {

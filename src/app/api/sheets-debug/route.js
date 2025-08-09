@@ -1,48 +1,24 @@
-// app/api/sheets-debug/route.js
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
-
-function summarizeKey(k) {
-  if (!k) return { present: false };
-  const hasEscaped = k.includes("\\n");
-  const hasReal = k.includes("\n");
-  const starts = k.slice(0, 30);
-  const ends = k.slice(-30);
-  return {
-    present: true,
-    length: k.length,
-    newlineStyle: hasEscaped ? "\\n" : hasReal ? "\\n(real)" : "none",
-    startsWith: starts,
-    endsWith: ends,
-    hasHeader: k.includes("BEGIN PRIVATE KEY"),
-  };
-}
+import { appendTransactionToSheet } from "@/lib/sheets";
 
 export async function GET() {
-  const email = process.env.GOOGLE_CLIENT_EMAIL || null;
-  const pk = process.env.GOOGLE_PRIVATE_KEY || null;
-  const serviceJsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || null;
-
-  let service = null;
-  if (serviceJsonRaw) {
-    try {
-      const json = JSON.parse(serviceJsonRaw);
-      service = {
-        hasEmail: !!json.client_email,
-        hasKey: !!json.private_key,
-        keySummary: summarizeKey(json.private_key || ""),
-      };
-    } catch {
-      service = { parseError: true };
-    }
+  try {
+    await appendTransactionToSheet(process.env.SPREADSHEET_ID, {
+      messageId: "TEST-" + Date.now(),
+      waId: "debug",
+      contactName: "Debug",
+      type: "Débito",
+      category: "Mercado",
+      amount: 12.34,
+      dateBr: "08/08/2025",
+      rawText: "debug sheets",
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: String(e?.message || e) },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    envSeen: {
-      hasClientEmail: !!email,
-      privateKey: summarizeKey(pk),
-      hasServiceJson: !!serviceJsonRaw,
-      serviceJson: service,
-    },
-  });
 }
