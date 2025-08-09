@@ -91,27 +91,6 @@ export async function POST(req) {
       if (text) {
         // 1) Primeiro: continua registrando transações (se for o caso)
         const { transaction } = await parseTransactionWithGemini(text);
-        if (transaction) {
-          try {
-            const saved = await saveTransaction({
-              messageId: msgId, // cuidado: se repetir o mesmo id, não insere de novo
-              waId: from,
-              contactName,
-              type: transaction.type,
-              category: transaction.category,
-              amount: transaction.amount,
-              dateBr: transaction.date,
-              rawText: text,
-            });
-            console.log("saved tx:", saved); // log rápido p/ ver se inseriu ou foi DO NOTHING
-          } catch (err) {
-            console.error("saveTransaction error:", err?.message || err);
-          }
-
-          const reply = formatTxReply(transaction);
-          await waSendText(from, reply);
-          return NextResponse.json({ ok: true });
-        }
 
         if (transaction) {
           const txData = {
