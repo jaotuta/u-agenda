@@ -1,21 +1,48 @@
+// app/api/sheets-debug/route.js
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
-import { getSheetsClient } from "@/lib/sheets";
+
+function summarizeKey(k) {
+  if (!k) return { present: false };
+  const hasEscaped = k.includes("\\n");
+  const hasReal = k.includes("\n");
+  const starts = k.slice(0, 30);
+  const ends = k.slice(-30);
+  return {
+    present: true,
+    length: k.length,
+    newlineStyle: hasEscaped ? "\\n" : hasReal ? "\\n(real)" : "none",
+    startsWith: starts,
+    endsWith: ends,
+    hasHeader: k.includes("BEGIN PRIVATE KEY"),
+  };
+}
 
 export async function GET() {
-  try {
-    const email = !!process.env.GOOGLE_CLIENT_EMAIL;
-    const pk = process.env.GOOGLE_PRIVATE_KEY ? "present" : "absent";
-    const sj = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const email = process.env.GOOGLE_CLIENT_EMAIL || null;
+  const pk = process.env.GOOGLE_PRIVATE_KEY || null;
+  const serviceJsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || null;
 
-    console.log("[debug] env flags:", { email, pk, sj });
-
-    const client = await getSheetsClient();
-    return NextResponse.json({ ok: true, email, pk, sj, client: !!client });
-  } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
-      { status: 500 }
-    );
+  let service = null;
+  if (serviceJsonRaw) {
+    try {
+      const json = JSON.parse(serviceJsonRaw);
+      service = {
+        hasEmail: !!json.client_email,
+        hasKey: !!json.private_key,
+        keySummary: summarizeKey(json.private_key || ""),
+      };
+    } catch {
+      service = { parseError: true };
+    }
   }
+
+  return NextResponse.json({
+    envSeen: {
+      hasClientEmail: !!email,
+      privateKey: summarizeKey(pk),
+      hasServiceJson: !!serviceJsonRaw,
+      serviceJson: service,
+    },
+  });
 }
