@@ -56,7 +56,7 @@ export async function appendTransactionToSheet(tx) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "Transações!A:I",
+    range: "Transações!A:A",
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values },
